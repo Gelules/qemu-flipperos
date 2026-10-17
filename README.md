@@ -27,6 +27,7 @@ one command prepares it.
 8. [Limitations and troubleshooting](#limitations-and-troubleshooting)
 9. [Going further (untested)](#going-further-untested)
 10. [Links and credits](#links-and-credits)
+11. [License](#license)
 
 ## Requirements
 
@@ -221,9 +222,9 @@ zstd --decompress --sparse debian-512-nobootloader-$ID.img.zst -o image.img
 
 Each build gets its own directory, `work/<BUILD_ID>/`, with its own VM disk:
 nothing is shared between builds, and `work/current` points to the build set
-up last (the one the scripts use when you give no build ID). Running
-`setup.sh` again on a build that is already prepared only checks it and
-changes nothing.
+up last: the one `03` to `06` use when you give no build ID (`setup.sh` and
+`02-download.sh` default to `latest`). Running `setup.sh` again on a build
+that is already prepared only checks it and makes it `work/current`.
 
 To go back to an older build: `./scripts/05-run.sh 2405`. To free space:
 `rm -rf work/2405`.
@@ -330,7 +331,9 @@ which has no authentication at all. Change the password first.
 Each script starts with a description of what it does, its inputs and its
 outputs (`--help` prints it), and every step is commented. The scripts that
 prepare a build (02, 03, 04 and `setup.sh`) skip the work that is already
-done; `--force` redoes it.
+done; `--force` redoes it. With `02-download.sh` and `setup.sh`, `--force`
+also deletes the boot files and the VM disk: everything changed inside the
+VM is lost.
 
 ```text
 work/
@@ -360,7 +363,7 @@ and gives it a device tree describing that machine.
  Boot ROM, DDR blob, TF-A                (nothing)
  U-Boot reads a BLS entry         ──>    03-extract-boot.sh reads the same entry
  U-Boot loads kernel, initrd, DTB        QEMU loads kernel and initrd, makes its own DTB
-             │                                          │
+             │                                                         │
              └──── same kernel, same initrd, same root file system ────┘
                    root=UUID=... rootflags=subvol=@<Profile>
 
@@ -456,8 +459,9 @@ Normal: the virtio console driver is loaded with the root file system, about
 answer after about 30 seconds. If nothing at all shows after two minutes,
 the boot stopped before the root file system was mounted, and its messages
 cannot reach this console (see [going further](#going-further-untested) for
-a kernel with a serial console). Check that `./scripts/03-extract-boot.sh`
-found a kernel with virtio support for this profile.
+a kernel with a serial console). Check that `ROOT_SUBVOL` is not set, or
+names a subvolume that exists in this build's VM disk: a new build's disk
+only has the original profiles.
 
 ### "port 8899 is already in use"
 
@@ -496,9 +500,11 @@ mount under `/media/$USER/` instead of `/run/media/$USER/`).
 
 ### "no kernel of build ... can boot under QEMU"
 
-This build's kernels do not have `CONFIG_VIRTIO_MMIO` and `CONFIG_VIRTIO_BLK`
-(as `y` or `m`). These scripts cannot boot it; try another build, or rebuild
-the kernel (see [going further](#going-further-untested)).
+No boot entry of this build has both an initrd and a kernel with
+`CONFIG_VIRTIO_MMIO` and `CONFIG_VIRTIO_BLK` (as `y` or `m`); the lines
+printed before the error say which part is missing for each entry. These
+scripts cannot boot it; try another build, or rebuild the kernel (see
+[going further](#going-further-untested)).
 
 ### It is slow
 
