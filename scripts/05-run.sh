@@ -4,9 +4,10 @@
 #
 # Usage:
 #   ./scripts/05-run.sh [--profile NAME] [BUILD_ID]
+#   ./scripts/05-run.sh --help
 #
 # Inputs:
-#   BUILD_ID         prepared build (default: the build work/current points to).
+#   BUILD_ID         prepared build (default: the build set up last, work/current).
 #   --profile NAME   profile to boot (default: PROFILE from config.env).
 #   work/<BUILD_ID>/boot/<Profile>/ and work/<BUILD_ID>/disk.qcow2, from
 #   setup.sh (or 03-extract-boot.sh and 04-create-disk.sh).
@@ -28,7 +29,7 @@
 
 # Load the shared helpers and the configuration.
 # shellcheck source=lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 # Read the command line.
 build_arg=""
@@ -42,7 +43,7 @@ while [ $# -gt 0 ]; do
             shift
             ;;
         -h | --help)
-            sed -n '3,27p' "$0"
+            show_help
             exit 0
             ;;
         -*)
@@ -70,11 +71,16 @@ if [ ! -f "$disk" ]; then
     die "$disk not found. Run ./scripts/04-create-disk.sh $build_id first."
 fi
 
-# QEMU cannot forward a port that is already taken, for example by another
-# VM started with this script.
+# One VM at a time per build: QEMU locks the VM disk it uses.
+if disk_in_use "$disk"; then
+    die "the VM disk of build $build_id is already used by a running VM; stop it first."
+fi
+
+# QEMU cannot forward a port that is already taken, for example by a VM of
+# another build started with this script.
 for port in "$FLIPCTL_PORT" "$SSH_PORT"; do
     if port_in_use "$port"; then
-        die "port $port on $BIND_ADDR is already in use (another VM running?). Choose other ports, for example: FLIPCTL_PORT=8898 SSH_PORT=2223 $0"
+        die "port $port on $BIND_ADDR is already in use (another VM running?). Stop it, or choose other ports, for example: FLIPCTL_PORT=8898 SSH_PORT=2223 $0"
     fi
 done
 
@@ -86,7 +92,7 @@ set_qemu_args "$dir" "$PROFILE" "$disk" "$FLIPCTL_PORT" "$SSH_PORT" || exit 1
 # killing QEMU. Everything shown is also written to a log file.
 # ("-monitor chardev:..." works with old and new QEMU versions; "-mon" is
 # deprecated since QEMU 11.)
-mkdir -p "$dir/logs" || die "cannot create $dir/logs"
+mkdir --parents "$dir/logs" || die "cannot create $dir/logs"
 log="$dir/logs/run-$PROFILE-$(date +%Y%m%d-%H%M%S).log"
 QEMU_ARGS+=(
     -chardev "stdio,id=console,mux=on,signal=off,logfile=$log"
