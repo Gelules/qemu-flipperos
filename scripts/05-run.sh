@@ -100,12 +100,14 @@ QEMU_ARGS+=(
     -device "virtconsole,chardev=console"
 )
 
-# The address to type in a browser: 0.0.0.0 means "every address", and
-# localhost is one of them.
+# The address to type in a browser or in ssh: for 127.0.0.1, and for 0.0.0.0
+# ("every address"), that is localhost.
 host="$BIND_ADDR"
-if [ "$host" = "0.0.0.0" ]; then
-    host="localhost"
-fi
+case "$host" in
+    127.0.0.1 | 0.0.0.0)
+        host="localhost"
+        ;;
+esac
 
 info "Booting FlipperOS build $build_id, profile $PROFILE, kernel $(cat "$boot_dir/kernel-version")"
 if [ -n "$ROOT_SUBVOL" ]; then
