@@ -1,0 +1,4 @@
+# Let a plain "shellcheck scripts/*.sh" follow the files the scripts source
+# (scripts/lib.sh and config.env), relative to each script's directory.
+external-sources=true
+source-path=SCRIPTDIR
