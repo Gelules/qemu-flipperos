@@ -4,26 +4,26 @@
 #
 # Usage:
 #   ./scripts/02-download.sh [--force] [BUILD_ID]
+#   ./scripts/02-download.sh --help
 #
 # Inputs:
 #   BUILD_ID   build to download: an ID such as 2407 or 2410-test-falcon, or
 #              "latest" for the newest build without a label.
 #              Default: BUILD_ID from config.env ("latest").
 #   --force    download and decompress again even if the image is already
-#              there. This also deletes the VM disk (disk.qcow2) made on top
-#              of the old image, so the VM starts from a fresh disk.
+#              there. This also deletes what was made from the old image:
+#              the boot files and the VM disk (changes made in the VM are lost).
 #
 # Outputs, in work/<BUILD_ID>/:
 #   image.img        raw disk image (GPT + root file system), read-only
 #   build-info.txt   build ID, source file, URL and SHA-256
-#   and the link work/current, pointing to that directory.
 #
 # Environment:
 #   BASE_URL, BUILD_ID, IMAGE_VARIANTS, WORK_DIR (see config.env).
 
 # Load the shared helpers and the configuration.
 # shellcheck source=lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 # Read the command line.
 force=no
@@ -33,7 +33,7 @@ while [ $# -gt 0 ]; do
             force=yes
             ;;
         -h | --help)
-            sed -n '3,23p' "$0"
+            show_help
             exit 0
             ;;
         -*)
@@ -69,26 +69,9 @@ dir=$(build_dir "$build_id")
 image="$dir/image.img"
 disk="$dir/disk.qcow2"
 
-# With --force, start again from nothing: delete the image and any archive,
-# complete or partial. The VM disk is an overlay that only makes sense on top
-# of the image it was created from, so it goes too.
-if [ "$force" = yes ]; then
-    if [ -e "$disk" ]; then
-        warn "--force: deleting the VM disk $disk (changes made inside the VM are lost)"
-        rm -f "$disk"
-    fi
-    info "--force: deleting the image and archives in $dir"
-    rm -f "$image" "$image.part" "$dir"/*.img.zst "$dir"/*.img.zst.part
-fi
-
-# Create the build directory, then make work/current point to it (a relative
-# link, so the work directory can be moved), for the next scripts.
-mkdir -p "$dir" || die "cannot create $dir"
-ln -sfn "$build_id" "$WORK_DIR/current" || die "cannot update $WORK_DIR/current"
-
 # image.img only appears once a verified archive was fully decompressed, so
-# when it exists there is nothing left to do.
-if [ -e "$image" ]; then
+# when it exists there is nothing left to do (and no need for the network).
+if [ -e "$image" ] && [ "$force" = no ]; then
     info "$image is already there (use --force to download it again)."
     info "Next: ./scripts/03-extract-boot.sh $build_id"
     exit 0
@@ -99,19 +82,46 @@ fi
 info "Reading the file list of build $build_id"
 files=$(list_build_files "$build_id")
 if [ -z "$files" ]; then
-    die "no file list for build $build_id (check the ID with ./scripts/01-list-builds.sh)"
+    die "no file list for build $build_id (check the ID with ./scripts/01-list-builds.sh; builds older than about 30 days are deleted from the server)"
 fi
 name=$(echo "$files" | pick_image_file)
 if [ -z "$name" ]; then
     echo "Files of build $build_id:" >&2
-    echo "$files" | cut -d ' ' -f 1 | sed 's/^/    /' >&2
+    echo "$files" | cut --delimiter=' ' --fields=1 | sed 's/^/    /' >&2
     die "no image of the variants \"$IMAGE_VARIANTS\" in build $build_id"
 fi
+
+# The file name comes from the server and becomes a path: it must be a plain
+# file name.
+case "$name" in
+    */*)
+        die "unexpected file name \"$name\" in the manifest of build $build_id"
+        ;;
+esac
 size=$(echo "$files" | awk -v name="$name" '$1 == name { print $2 }')
 sha256=$(echo "$files" | awk -v name="$name" '$1 == name { print $3 }')
 url="$BASE_URL/$build_id/$name"
 archive="$dir/$name"
 info "Image: $name ($(numfmt --to=iec-i --suffix=B "$size" 2>/dev/null))"
+
+# With --force, start again from nothing, now that the build is known to be
+# still on the server: delete the image and any archive, complete or partial,
+# and what was made from the old image (boot files and VM disk).
+if [ "$force" = yes ]; then
+    if [ -e "$disk" ] && disk_in_use "$disk"; then
+        die "$disk is used by a running VM; stop the VM first"
+    fi
+    if [ -e "$disk" ]; then
+        warn "--force: deleting the VM disk $disk (changes made inside the VM are lost)"
+        rm --force "$disk"
+    fi
+    info "--force: deleting the image, the archives and the boot files in $dir"
+    rm --force "$image" "$image.part" "$dir"/*.img.zst "$dir"/*.img.zst.part
+    rm --recursive --force "${dir:?}/boot"
+fi
+
+# Create the build directory.
+mkdir --parents "$dir" || die "cannot create $dir"
 
 # Download to "<name>.part", resuming a previous attempt if there is one.
 # The archive only gets its real name once its checksum is verified.
@@ -128,13 +138,13 @@ if [ ! -e "$archive" ]; then
     if [ "$sha256" != "?" ]; then
         info "Checking the SHA-256 checksum"
         if ! echo "$sha256  $archive.part" | sha256sum --check --status; then
-            rm -f "$archive.part"
+            rm --force "$archive.part"
             die "checksum mismatch for $name; the file was deleted, run the script again"
         fi
     else
         info "No checksum published; testing the archive with zstd"
         if ! zstd --test --quiet "$archive.part"; then
-            rm -f "$archive.part"
+            rm --force "$archive.part"
             die "$name is damaged; the file was deleted, run the script again"
         fi
     fi
@@ -146,7 +156,7 @@ fi
 # verifies the checksums stored in the archive while it decompresses.
 info "Decompressing to $image"
 if ! zstd --decompress --sparse --force "$archive" -o "$image.part"; then
-    rm -f "$image.part"
+    rm --force "$image.part"
     die "decompression failed"
 fi
 
@@ -156,7 +166,7 @@ chmod a-w "$image.part"
 mv "$image.part" "$image" || die "cannot rename $image.part"
 
 # The archive is no longer needed; it can be downloaded again with --force.
-rm -f "$archive"
+rm --force "$archive"
 
 # Remember where the image comes from. 03-extract-boot.sh adds the details
 # of the file system to this file.
@@ -169,5 +179,5 @@ rm -f "$archive"
     echo "downloaded_at=$(date --utc +%Y-%m-%dT%H:%M:%SZ)"
 } > "$dir/build-info.txt"
 
-info "Done: $image ($(du --human-readable "$image" | cut -f 1) used on disk)"
+info "Done: $image ($(du --human-readable "$image" | cut --fields=1) used on disk)"
 info "Next: ./scripts/03-extract-boot.sh $build_id"
