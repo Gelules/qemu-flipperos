@@ -289,7 +289,7 @@ set_qemu_args() {
         -m "$MEMORY"
 
         # Start from an empty machine (no default network card, serial port,
-        # monitor or display) and add only what FlipperOS can drive.
+        # monitor or display) and add only what Flipper OS can drive.
         -nodefaults
         -display none
 
@@ -299,7 +299,7 @@ set_qemu_args() {
         -initrd "$boot_dir/initrd"
         -append "$cmdline"
 
-        # The disk. FlipperOS has no virtio-pci host driver, so every virtio
+        # The disk. Flipper OS has no virtio-pci host driver, so every virtio
         # device uses the MMIO transport: "-device virtio-*-device", never
         # "virtio-*-pci".
         -drive "if=none,id=disk0,file=$3,format=qcow2"

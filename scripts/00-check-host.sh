@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 00-check-host.sh - check that this computer can prepare and run FlipperOS.
+# 00-check-host.sh - check that this computer can prepare and run Flipper OS.
 #
 # Usage:
 #   ./scripts/00-check-host.sh

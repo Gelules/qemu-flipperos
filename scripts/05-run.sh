@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 05-run.sh - boot FlipperOS in QEMU, with the guest console in this terminal.
+# 05-run.sh - boot Flipper OS in QEMU, with the guest console in this terminal.
 #
 # Usage:
 #   ./scripts/05-run.sh [--profile NAME] [BUILD_ID]
@@ -109,7 +109,7 @@ case "$host" in
         ;;
 esac
 
-info "Booting FlipperOS build $build_id, profile $PROFILE, kernel $(cat "$boot_dir/kernel-version")"
+info "Booting Flipper OS build $build_id, profile $PROFILE, kernel $(cat "$boot_dir/kernel-version")"
 if [ -n "$ROOT_SUBVOL" ]; then
     info "Root subvolume overridden: $ROOT_SUBVOL"
 fi

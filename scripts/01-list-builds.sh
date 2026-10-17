@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 01-list-builds.sh - list the FlipperOS builds published on the build server.
+# 01-list-builds.sh - list the Flipper OS builds published on the build server.
 #
 # Usage:
 #   ./scripts/01-list-builds.sh             list every build, newest first

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# setup.sh - prepare a FlipperOS build for QEMU in one command: check the
+# setup.sh - prepare a Flipper OS build for QEMU in one command: check the
 # host, download the image, extract the boot files and create the VM disk.
 #
 # Usage:

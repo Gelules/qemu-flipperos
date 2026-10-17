@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # 03-extract-boot.sh - copy the kernel, initrd and kernel command line of
-# every FlipperOS profile out of the disk image.
+# every Flipper OS profile out of the disk image.
 #
 # On the real hardware, U-Boot reads the Boot Loader Specification (BLS)
 # entries in /boot/loader/entries of the btrfs root file system: one entry per
@@ -216,7 +216,7 @@ for entry in "$entries_dir"/*.conf; do
     fi
 
     # The profile name becomes a directory name: accept only the characters
-    # FlipperOS allows in profile names.
+    # Flipper OS allows in profile names.
     case "$profile" in
         .* | *[!A-Za-z0-9._-]*)
             warn "$(basename "$entry"): invalid profile name \"$profile\", skipped"

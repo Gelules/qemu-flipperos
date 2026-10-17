@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 02-download.sh - download, verify and decompress a FlipperOS disk image.
+# 02-download.sh - download, verify and decompress a Flipper OS disk image.
 #
 # Usage:
 #   ./scripts/02-download.sh [--force] [BUILD_ID]

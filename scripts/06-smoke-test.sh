@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 06-smoke-test.sh - boot FlipperOS without a terminal and check that it works.
+# 06-smoke-test.sh - boot Flipper OS without a terminal and check that it works.
 #
 # The test boots the same virtual machine as 05-run.sh, but headless, on a
 # throwaway disk (your VM disk is not touched) and on separate host ports, so
@@ -268,7 +268,7 @@ guest() {
 }
 
 # Same, as root through sudo; the password is sent on the standard input
-# (FlipperOS does not ask for it today, but it may one day). The empty prompt
+# (Flipper OS does not ask for it today, but it may one day). The empty prompt
 # is written --prompt= because ssh joins the arguments of the remote command
 # with spaces, so an empty "" argument would be lost on the way.
 guest_root() {

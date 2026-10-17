@@ -5,7 +5,7 @@
 #
 # The raw image is never modified: the VM reads it through the overlay, and
 # every block the VM writes is stored in the overlay. The overlay is bigger
-# than the image (DISK_SIZE), and FlipperOS grows its root partition and
+# than the image (DISK_SIZE), and Flipper OS grows its root partition and
 # file system to fill it on the first boot.
 #
 # Usage:

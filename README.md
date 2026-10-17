@@ -1,17 +1,17 @@
-# QEMU FlipperOS
+# QEMU Flipper OS
 
-Boot **FlipperOS**, the Debian-based Linux system of the Flipper One, in
+Boot **Flipper OS**, the Debian-based Linux system of the Flipper One, in
 **QEMU** on an ordinary Linux PC: no Flipper One and no single-board computer
 needed.
 
-The scripts download an official FlipperOS build, take the kernel, the initrd
+The scripts download an official Flipper OS build, take the kernel, the initrd
 and the kernel command line out of the disk image, and boot it on QEMU's
 generic `virt` ARM machine. You get the FlipCTL user interface in your
 browser, SSH and a console in your terminal. When a new build is published,
 one command prepares it.
 
-> **Unofficial project.** QEMU FlipperOS is not affiliated with, endorsed by
-> or supported by Flipper Devices. FlipperOS, Flipper One and FlipCTL belong
+> **Unofficial project.** QEMU Flipper OS is not affiliated with, endorsed by
+> or supported by Flipper Devices. Flipper OS, Flipper One and FlipCTL belong
 > to their owners. Please do not report problems seen under QEMU to Flipper
 > Devices unless you also see them on real hardware.
 
@@ -20,7 +20,7 @@ one command prepares it.
 1. [Requirements](#requirements)
 2. [Quick start](#quick-start)
 3. [Which file to download](#which-file-to-download)
-4. [Updating to a new FlipperOS build](#updating-to-a-new-flipperos-build)
+4. [Updating to a new Flipper OS build](#updating-to-a-new-flipper-os-build)
 5. [Profiles](#profiles)
 6. [Configuration](#configuration)
 7. [How it works](#how-it-works)
@@ -79,7 +79,7 @@ cd qemu-flipperos
   <http://localhost:8899>. Use the mouse on the buttons of the device
   picture, or the keyboard: arrows, Enter (OK), Escape or Backspace (Back),
   and the keys listed under "Show controls".
-- **SSH**: `ssh -p 2222 user@localhost`, password `user`. FlipperOS gives
+- **SSH**: `ssh -p 2222 user@localhost`, password `user`. Flipper OS gives
   `user` passwordless sudo. A new build or a fresh VM disk comes with new SSH
   host keys: if `ssh` then refuses to connect because the host key changed,
   forget the old one with `ssh-keygen -R '[localhost]:2222'`.
@@ -103,7 +103,7 @@ how to do it by hand.
 
 ### Where the builds are
 
-Flipper Devices publishes every successful build of FlipperOS on
+Flipper Devices publishes every successful build of Flipper OS on
 <https://dl-linux-images.flipp.dev/full-img/>, one directory per build. The
 page is drawn in the browser by JavaScript from
 [`manifest.json`](https://dl-linux-images.flipp.dev/full-img/manifest.json);
@@ -214,7 +214,7 @@ sha256sum debian-512-nobootloader-$ID.img.zst
 zstd --decompress --sparse debian-512-nobootloader-$ID.img.zst -o image.img
 ```
 
-## Updating to a new FlipperOS build
+## Updating to a new Flipper OS build
 
 ```sh
 ./scripts/setup.sh latest && ./scripts/05-run.sh
@@ -234,7 +234,7 @@ the VM is lost): `./scripts/04-create-disk.sh --force 2407`.
 
 ## Profiles
 
-FlipperOS comes with several *profiles*: complete systems that share the same
+Flipper OS comes with several *profiles*: complete systems that share the same
 btrfs file system, each in its own subvolume (`@Minimal`, `@Router`...).
 `/home`, `/var/log`, `/var/cache` and `/boot` are shared by all profiles.
 
@@ -261,7 +261,7 @@ FlipCTL's boot menu cannot switch profiles under QEMU (it even shows no
 profiles, [see why](#flipctls-boot-menu-shows-no-profiles)). Choose the
 profile on the command line instead.
 
-**A profile created inside the VM.** The profile tools of FlipperOS work in
+**A profile created inside the VM.** The profile tools of Flipper OS work in
 the VM. For example, to make a copy of Minimal and boot it:
 
 ```sh
@@ -352,7 +352,7 @@ work/
 On the hardware, the RK3576 boot ROM runs a DDR initialisation blob, the
 Arm Trusted Firmware and a U-Boot built for that board, with the Rockchip
 device trees. None of this can run in QEMU, which has no RK3576 model. It is
-not needed either: the FlipperOS kernel is a mainline arm64 kernel, which
+not needed either: the Flipper OS kernel is a mainline arm64 kernel, which
 boots on any machine it has drivers for. So QEMU loads the kernel and the
 initrd itself (`-kernel`, `-initrd`, `-append`) on its generic `virt` machine,
 and gives it a device tree describing that machine.
@@ -372,7 +372,7 @@ and gives it a device tree describing that machine.
 
 ### Reading the boot entries
 
-FlipperOS describes what to boot with [Boot Loader
+Flipper OS describes what to boot with [Boot Loader
 Specification](https://uapi-group.org/specifications/specs/boot_loader_specification/)
 entries, in `/boot/loader/entries/` of the btrfs file system: one entry per
 profile and per kernel, for example
@@ -412,7 +412,7 @@ virtio support.
 
 ### The virtio-mmio constraint
 
-The FlipperOS kernel is configured for the RK3576 only. It has the virtio
+The Flipper OS kernel is configured for the RK3576 only. It has the virtio
 drivers (as modules, in the initrd), but no driver for QEMU's PCI host bridge
 (`PCI_HOST_GENERIC`), its PL011 serial port, its PL031 clock, or a virtio
 GPU. So every device uses virtio over MMIO: `-device virtio-blk-device`,
@@ -529,7 +529,7 @@ then be missing. Prefer a new build: `./scripts/setup.sh latest`.
 
 ### The guest clock
 
-QEMU has a real-time clock, but the FlipperOS kernel has no driver for it.
+QEMU has a real-time clock, but the Flipper OS kernel has no driver for it.
 The guest starts with a date stored in the image, then `systemd-timesyncd`
 sets the clock from NTP (Debian pool) about 30 seconds after the start, once
 the network is up. Until then HTTPS may fail ("the app catalogue did not
@@ -613,7 +613,7 @@ profile a screen. This has not been tried: it is a lead, not a recipe.
 ## Links and credits
 
 - Flipper One documentation: [Run your own Flipper One](https://docs.flipper.net/one/dev-log/10),
-  [FlipperOS](https://docs.flipper.net/one/cpu-software/flipper-os),
+  [Flipper OS](https://docs.flipper.net/one/cpu-software/flipper-os),
   [profiles](https://docs.flipper.net/one/cpu-software/profiles),
   [build system](https://docs.flipper.net/one/cpu-software/build-system).
 - Source code by Flipper Devices:
@@ -625,7 +625,7 @@ profile a screen. This has not been tried: it is a lead, not a recipe.
   <https://linux-images.flipp.dev/>.
 - [QEMU](https://www.qemu.org/docs/master/system/arm/virt.html) `virt` machine.
 
-FlipperOS is made by Flipper Devices; this repository only contains scripts
+Flipper OS is made by Flipper Devices; this repository only contains scripts
 to run it.
 
 ## License
