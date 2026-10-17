@@ -6,6 +6,7 @@
 #   ./scripts/01-list-builds.sh             list every build, newest first
 #   ./scripts/01-list-builds.sh BUILD_ID    list the files of one build
 #   ./scripts/01-list-builds.sh latest      same, for the newest build without a label
+#   ./scripts/01-list-builds.sh --help      print this help
 #
 # Inputs:
 #   BUILD_ID   optional build ID, for example 2407 or 2410-test-falcon.
@@ -18,12 +19,12 @@
 
 # Load the shared helpers and the configuration.
 # shellcheck source=lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 # Read the command line.
 case "$1" in
     -h | --help)
-        sed -n '3,16p' "$0"
+        show_help
         exit 0
         ;;
 esac
@@ -49,13 +50,14 @@ if [ -z "$build_id" ]; then
         else
             note="label: ${id#*-}"
         fi
+        # Keep the date to the minute: 2026-10-17T07:42 becomes 2026-10-17 07:42.
         date=${date:0:16}
         printf '%-46s %-17s %s\n' "$id" "${date/T/ }" "$note"
     done
 
     # Summary, printed last so that it stays visible on the terminal.
-    count=$(echo "$builds" | wc -l)
-    newest=$(echo "$builds" | head -n 1 | cut -d ' ' -f 1)
+    count=$(echo "$builds" | wc --lines)
+    newest=$(echo "$builds" | head --lines=1 | cut --delimiter=' ' --fields=1)
     latest=$(echo "$builds" | awk '$1 ~ /^[0-9]+$/ { print $1; exit }')
     echo
     info "$count builds. Newest: $newest. Newest without a label (\"latest\"): $latest."
@@ -100,7 +102,7 @@ done
 # also read from the manifest. A label usually matches a branch name here.
 manifest=$(manifest_objects "$BASE_URL/$build_id/manifest.json")
 echo
-echo "Build details: $(echo "$manifest" | json_value url | head -n 1)"
+echo "Build details: $(echo "$manifest" | json_value url | head --lines=1)"
 echo "Sources:"
 echo "$manifest" | grep '"codebase"' | while read -r object; do
     printf '    %-16s %-24s %.12s\n' \

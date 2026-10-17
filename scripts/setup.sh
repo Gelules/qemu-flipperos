@@ -5,6 +5,7 @@
 #
 # Usage:
 #   ./scripts/setup.sh [--force] [BUILD_ID]
+#   ./scripts/setup.sh --help
 #
 # Inputs:
 #   BUILD_ID   a build ID such as 2407 or 2410-test-falcon, or "latest" for
@@ -15,7 +16,7 @@
 #
 # Outputs:
 #   work/<BUILD_ID>/ (see 02-download.sh, 03-extract-boot.sh and
-#   04-create-disk.sh) and the link work/current to it.
+#   04-create-disk.sh), and the link work/current to it once it is ready.
 #   Running it again on a prepared build is quick and changes nothing.
 #
 # Environment:
@@ -23,7 +24,7 @@
 
 # Load the shared helpers and the configuration.
 # shellcheck source=lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 # Read the command line. Options are passed on to every step.
 step_options=()
@@ -33,7 +34,7 @@ while [ $# -gt 0 ]; do
             step_options+=(--force)
             ;;
         -h | --help)
-            sed -n '3,22p' "$0"
+            show_help
             exit 0
             ;;
         -*)

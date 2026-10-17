@@ -4,6 +4,7 @@
 #
 # Usage:
 #   ./scripts/00-check-host.sh
+#   ./scripts/00-check-host.sh --help     print this help
 #
 # Inputs:
 #   None. Looks for the required programs, the free disk space in WORK_DIR,
@@ -18,13 +19,21 @@
 
 # Load the shared helpers and the configuration.
 # shellcheck source=lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
+
+# Read the command line.
+case "$1" in
+    -h | --help)
+        show_help
+        exit 0
+        ;;
+esac
 
 # Programs the scripts cannot work without.
 required="curl zstd sha256sum sfdisk mount umount qemu-system-aarch64 qemu-img"
 
 # sudo is only needed when we are not root (to mount the disk image).
-if [ "$(id -u)" -ne 0 ]; then
+if [ "$(id --user)" -ne 0 ]; then
     required="$required sudo"
 fi
 
@@ -51,7 +60,7 @@ fi
 # guessed from the ID and ID_LIKE fields of /etc/os-release
 # (for example "ID=ubuntu" and "ID_LIKE=debian").
 if [ -n "$missing" ]; then
-    distro=$(sed -n 's/^ID\(_LIKE\)\{0,1\}=//p' /etc/os-release 2>/dev/null | tr -d '"' | tr '\n' ' ')
+    distro=$(sed --quiet 's/^ID\(_LIKE\)\{0,1\}=//p' /etc/os-release 2>/dev/null | tr --delete '"' | tr '\n' ' ')
     case " $distro " in
         *" arch "*)
             hint="sudo pacman -S --needed curl zstd coreutils util-linux qemu-system-aarch64 qemu-img sshpass sudo"
@@ -84,7 +93,7 @@ for module in loop btrfs; do
     if [ -d "/sys/module/$module" ] || modinfo "$module" >/dev/null 2>&1; then
         info "found    $module driver in the host kernel"
     else
-        warn "no $module driver for the running kernel $(uname -r): mounting the image will fail."
+        warn "no $module driver for the running kernel $(uname --kernel-release): mounting the image will fail."
         warn "If you just upgraded the kernel, reboot."
         warnings=$((warnings + 1))
     fi
@@ -97,7 +106,7 @@ space_dir="$WORK_DIR"
 if [ ! -d "$space_dir" ]; then
     space_dir=$(dirname "$WORK_DIR")
 fi
-free_gb=$(df --output=avail --block-size=1G "$space_dir" 2>/dev/null | tail -n 1 | tr -d ' ')
+free_gb=$(df --output=avail --block-size=1G "$space_dir" 2>/dev/null | tail --lines=1 | tr --delete ' ')
 if [ -z "$free_gb" ]; then
     warn "could not read the free space of $space_dir"
     warnings=$((warnings + 1))
@@ -109,9 +118,20 @@ else
 fi
 
 # The guest gets MEMORY of RAM. Compare it with the memory available now.
-need_kb=$(( $(numfmt --from=iec "$MEMORY") / 1024 ))
+# QEMU reads a plain number as MiB and accepts "4g" as well as "4G": convert
+# the value to the form numfmt understands ("4096M", "4G") first.
+memory=${MEMORY^^}
+case "$memory" in
+    *[0-9])
+        memory="${memory}M"
+        ;;
+esac
+need_bytes=$(numfmt --from=iec "$memory" 2>/dev/null)
 available_kb=$(awk '$1 == "MemAvailable:" { print $2 }' /proc/meminfo)
-if [ "$available_kb" -lt "$need_kb" ]; then
+if [ -z "$need_bytes" ]; then
+    warn "cannot read MEMORY=$MEMORY (use a size such as 4G)"
+    warnings=$((warnings + 1))
+elif [ "$available_kb" -lt $((need_bytes / 1024)) ]; then
     warn "the VM wants MEMORY=$MEMORY but only $((available_kb / 1024)) MB are available; lower MEMORY or close programs."
     warnings=$((warnings + 1))
 else
