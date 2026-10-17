@@ -4,7 +4,7 @@
 #
 # Usage:
 #   This file is sourced by the other scripts, it is not meant to be run:
-#       . "$(dirname "$0")/lib.sh"
+#       . "$(dirname "$0")/lib.sh" || exit 1
 #
 # Inputs:
 #   config.env at the top of the repository, and the environment variables
@@ -13,8 +13,8 @@
 # Outputs:
 #   Variables: SCRIPTS_DIR, TOP_DIR, PROG, every setting of config.env, and
 #   QEMU_ARGS once set_qemu_args has been called.
-#   Functions: messages (info, warn, die), root access (as_root), build
-#   server access, build directories, partition lookup and the QEMU
+#   Functions: messages (info, warn, die, show_help), root access (as_root),
+#   build server access, build directories, partition lookup and the QEMU
 #   command line shared by 05-run.sh and 06-smoke-test.sh.
 #
 # Environment:
@@ -29,7 +29,11 @@ TOP_DIR=$(dirname "$SCRIPTS_DIR")
 
 # Read the default settings. Values already set in the environment win.
 # shellcheck source=../config.env
-. "$TOP_DIR/config.env"
+. "$TOP_DIR/config.env" || exit 1
+
+# Some distributions (Debian) keep sfdisk, blkid and modinfo in /usr/sbin,
+# which is not in the PATH of a normal user.
+PATH="$PATH:/usr/sbin:/sbin"
 
 # Name of the running script without ".sh", shown in front of every message.
 PROG=$(basename "$0" .sh)
@@ -54,12 +58,18 @@ die() {
     exit 1
 }
 
+# Print the documentation of the running script: its header comment, from
+# line 3 to the first empty line, without the leading "# ".
+show_help() {
+    sed --quiet '3,/^$/p' "$0" | sed 's/^# \{0,1\}//'
+}
+
 # --- Root access ------------------------------------------------------------
 
 # Run a command as root: directly if we already are root, else with sudo.
 # Only mounting the disk image and copying files out of it need this.
 as_root() {
-    if [ "$(id -u)" -eq 0 ]; then
+    if [ "$(id --user)" -eq 0 ]; then
         "$@"
     else
         sudo "$@"
@@ -78,14 +88,19 @@ http_get() {
 # HTML listing is drawn from it by JavaScript). To avoid depending on a JSON
 # parser, the whole document is put on one line and cut at the braces: the
 # objects we need (builds and files) contain no nested object.
+# The document is downloaded completely first, so that a failed download
+# gives nothing instead of part of the list.
 manifest_objects() {
-    http_get "$1" | tr -d '\n' | grep --only-matching '{[^{}]*}'
+    local json
+
+    json=$(http_get "$1") || return 1
+    echo "$json" | tr --delete '\n' | grep --only-matching '{[^{}]*}'
 }
 
 # Print the value of a field of the one-line JSON object read on stdin.
 # Works for strings ("name": "2407/") and numbers ("size": 3849).
 json_value() {
-    sed -n "s/.*\"$1\": *\"\{0,1\}\([^\",}]*\).*/\1/p"
+    sed --quiet "s/.*\"$1\": *\"\{0,1\}\([^\",}]*\).*/\1/p"
 }
 
 # Print the builds published on the server, newest first, one per line:
@@ -105,7 +120,7 @@ list_server_builds() {
     done | sort --numeric-sort --reverse
 }
 
-# Print the newest build ID without a label. Labels mark builds made from
+# Print the newest build ID without a label. A label marks a build made from
 # another branch, a pull request or by hand, so unlabelled builds are the
 # regular ones.
 latest_build_id() {
@@ -155,9 +170,13 @@ build_dir() {
 }
 
 # Print the build ID that a script working on a prepared build should use:
-# its argument if one was given, else the build work/current points to.
+# its argument if one was given, else the build work/current points to (the
+# build set up last).
 local_build_id() {
-    if [ -n "$1" ]; then
+    if [ "$1" = "latest" ]; then
+        echo "[$PROG] ERROR: \"latest\" only works with setup.sh and 02-download.sh; give a build ID, or nothing for the build set up last." >&2
+        return 1
+    elif [ -n "$1" ]; then
         echo "$1"
     elif [ -L "$WORK_DIR/current" ]; then
         basename "$(readlink "$WORK_DIR/current")"
@@ -169,7 +188,13 @@ local_build_id() {
 
 # Read a value from the build-info.txt file of a build directory.
 build_info() {
-    sed -n "s/^$2=//p" "$1/build-info.txt" 2>/dev/null | tail -n 1
+    sed --quiet "s/^$2=//p" "$1/build-info.txt" 2>/dev/null | tail --lines=1
+}
+
+# Succeed if a running QEMU uses this disk image: QEMU locks the images it
+# opens, and qemu-img then reports that it cannot get the lock.
+disk_in_use() {
+    qemu-img info "$1" 2>&1 | grep --quiet --ignore-case 'lock'
 }
 
 # --- Disk image -------------------------------------------------------------
@@ -217,9 +242,7 @@ port_in_use() {
 # 03-extract-boot.sh), plus the virtio console. When ROOT_SUBVOL is set, the
 # root subvolume is replaced by it.
 guest_cmdline() {
-    local cmdline
-
-    local subvol
+    local cmdline subvol
 
     cmdline=$(cat "$1/cmdline") || return 1
 
@@ -232,7 +255,7 @@ guest_cmdline() {
             echo "[$PROG] ERROR: no subvol= option in $1/cmdline" >&2
             return 1
         fi
-        cmdline=${cmdline/"$subvol"/subvol=$ROOT_SUBVOL}
+        cmdline=${cmdline/"$subvol"/"subvol=$ROOT_SUBVOL"}
     fi
 
     # hvc0 is the virtio console. It must come last to become /dev/console.
