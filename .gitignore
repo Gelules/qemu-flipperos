@@ -1,0 +1,3 @@
+# Everything the scripts generate: downloaded images, extracted kernels,
+# VM disks and console logs.
+/work/
