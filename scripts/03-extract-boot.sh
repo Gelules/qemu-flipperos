@@ -10,9 +10,10 @@
 #
 # Usage:
 #   ./scripts/03-extract-boot.sh [--force] [BUILD_ID]
+#   ./scripts/03-extract-boot.sh --help
 #
 # Inputs:
-#   BUILD_ID   prepared build (default: the build work/current points to).
+#   BUILD_ID   prepared build (default: the build set up last, work/current).
 #   --force    extract again even if the boot files are already there.
 #   work/<BUILD_ID>/image.img, from 02-download.sh.
 #
@@ -32,12 +33,12 @@
 #               then reads from it and does not mount anything itself.
 #
 # Root access: the root partition is mounted read-only with
-# "sudo mount -o ro,loop,offset=...,sizelimit=...", and unmounted at the end,
-# also after an error or Ctrl-C.
+# "sudo mount -o ro,nodev,nosuid,noexec,loop,offset=...,sizelimit=...", and
+# unmounted at the end, also after an error or Ctrl-C.
 
 # Load the shared helpers and the configuration.
 # shellcheck source=lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 # Read the command line.
 force=no
@@ -48,7 +49,7 @@ while [ $# -gt 0 ]; do
             force=yes
             ;;
         -h | --help)
-            sed -n '3,37p' "$0"
+            show_help
             exit 0
             ;;
         -*)
@@ -77,7 +78,7 @@ if [ -d "$dir/boot" ] && [ "$force" = no ]; then
     info "Next: ./scripts/04-create-disk.sh $build_id"
     exit 0
 fi
-rm -rf "$dir/boot.tmp"
+rm --recursive --force "$dir/boot.tmp"
 
 # --- Helpers ----------------------------------------------------------------
 
@@ -87,32 +88,53 @@ entry_value() {
 }
 
 # Copy a file out of the mounted image, so that the current user owns the
-# copy. Files only root can read (an initrd with mode 0600, for example) are
-# read through sudo, unless the image was mounted by the user (ROOT_MOUNT).
+# copy. The path comes from the image, which is downloaded from the Internet:
+# once ".." and symbolic links are resolved, it must still lead to a regular
+# file inside the mounted file system. Otherwise a crafted image could make
+# sudo read a file of this computer. Files only root can read are read
+# through sudo, unless the image was mounted by the user (ROOT_MOUNT).
 copy_out() {
-    if [ -r "$1" ]; then
-        cp "$1" "$2"
+    local real
+
+    real=$(readlink --canonicalize-existing "$1")
+    case "$real" in
+        "$mnt_real"/*)
+            ;;
+        *)
+            echo "[$PROG] ERROR: $1 does not exist, or leads outside the image." >&2
+            return 1
+            ;;
+    esac
+    if [ ! -f "$real" ]; then
+        echo "[$PROG] ERROR: $1 is not a regular file." >&2
+        return 1
+    fi
+
+    if [ -r "$real" ]; then
+        cp "$real" "$2"
     elif [ -z "$ROOT_MOUNT" ]; then
-        as_root cat "$1" > "$2"
+        as_root cat "$real" > "$2"
     else
-        echo "[$PROG] ERROR: $1 is not readable by $(id -un) ($(stat --format='%U:%G mode %a' "$1"))." >&2
+        echo "[$PROG] ERROR: $1 is not readable by $(id --user --name) ($(stat --format='%U:%G mode %a' "$real"))." >&2
         echo "[$PROG] ERROR: unset ROOT_MOUNT to let the script mount the image with sudo." >&2
         return 1
     fi
 }
 
-# Unmount the image when the script ends, whatever the reason.
+# Unmount the image when the script ends, whatever the reason. Writing a
+# message to a closed pipe (output sent to "tee", then Ctrl-C) must not stop
+# the clean-up, hence "trap '' PIPE".
 mnt=""
-mounted=no
 cleanup() {
-    if [ "$mounted" = yes ]; then
+    trap '' PIPE
+    if [ -z "$ROOT_MOUNT" ] && [ -n "$mnt" ] && mountpoint --quiet "$mnt"; then
         info "Unmounting $mnt"
         as_root umount "$mnt" || warn "could not unmount $mnt, run: sudo umount $mnt"
     fi
-    if [ -n "$mnt" ] && [ -z "$ROOT_MOUNT" ]; then
+    if [ -z "$ROOT_MOUNT" ] && [ -n "$mnt" ]; then
         rmdir "$mnt" 2>/dev/null
     fi
-    rm -rf "$dir/boot.tmp"
+    rm --recursive --force "$dir/boot.tmp"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -120,11 +142,14 @@ trap 'exit 143' TERM
 
 # --- Mount the root partition -----------------------------------------------
 
-# Find the root partition in the GPT of the image, by type or name.
+# Find the root partition in the GPT of the image, by type or name, and check
+# that sfdisk gave plain numbers before computing with them.
 read -r start size sector <<< "$(root_partition "$image")"
-if [ -z "$size" ]; then
-    die "no root partition (GPT type root-arm64 or name \"root\") in $image"
-fi
+case "$start$size$sector" in
+    "" | *[!0-9]*)
+        die "no root partition (GPT type root-arm64 or name \"root\") in $image"
+        ;;
+esac
 offset=$((start * sector))
 length=$((size * sector))
 info "Root partition: offset $offset, size $length bytes"
@@ -134,16 +159,19 @@ if [ -n "$ROOT_MOUNT" ]; then
     mnt="$ROOT_MOUNT"
     info "Using the root file system mounted on $mnt (ROOT_MOUNT)"
 else
-    # Mount it read-only through a loop device limited to the partition.
-    # The loop device is released automatically by umount.
+    # Mount it read-only through a loop device limited to the partition. The
+    # image is not trusted, so device files and programs on it are disabled
+    # (nodev, nosuid, noexec). The loop device is released by umount.
     mnt="$dir/mnt"
-    mkdir -p "$mnt" || die "cannot create $mnt"
+    mkdir --parents "$mnt" || die "cannot create $mnt"
     info "Mounting the root partition on $mnt (needs sudo)"
-    if ! as_root mount --options "ro,loop,offset=$offset,sizelimit=$length" "$image" "$mnt"; then
+    if ! as_root mount --options "ro,nodev,nosuid,noexec,loop,offset=$offset,sizelimit=$length" "$image" "$mnt"; then
         die "mount failed (is the btrfs driver of the host kernel available? see ./scripts/00-check-host.sh)"
     fi
-    mounted=yes
 fi
+
+# The canonical path of the mount point, used by copy_out to check paths.
+mnt_real=$(readlink --canonicalize-existing "$mnt") || die "cannot resolve $mnt"
 
 # The btrfs default subvolume is the top level, so the mount shows the boot
 # subvolume ("boot", mounted on /boot by every profile) and the profiles
@@ -157,18 +185,20 @@ fi
 
 # Look at every entry. Each one names a kernel, an initrd and the kernel
 # command line, which selects the profile with rootflags=subvol=@<Profile>.
-# Keep the entries whose kernel can boot under QEMU: it needs the virtio-mmio
-# transport and the virtio block driver (built in or as modules). On current
-# images this keeps the mainline kernel and drops Rockchip's BSP kernel.
+# Keep the entries whose kernel can boot under QEMU: it needs an initrd (the
+# virtio drivers are modules), the virtio-mmio transport and the virtio block
+# driver (built in or as modules). On current images this keeps the mainline
+# kernel and drops Rockchip's BSP kernel.
 candidates=""
 all_profiles=""
 for entry in "$entries_dir"/*.conf; do
     version=$(entry_value version "$entry")
     options=$(entry_value options "$entry")
     linux=$(entry_value linux "$entry")
+    initrd=$(entry_value initrd "$entry")
 
     # The profile is the root subvolume: "subvol=@Minimal" gives "Minimal".
-    subvol=$(echo "$options" | grep --only-matching 'subvol=[^ ,]*' | head -n 1)
+    subvol=$(echo "$options" | grep --only-matching 'subvol=[^ ,]*' | head --lines=1)
     subvol=${subvol#subvol=}
     subvol=${subvol#/}
     profile=${subvol#@}
@@ -176,7 +206,23 @@ for entry in "$entries_dir"/*.conf; do
         warn "$(basename "$entry"): no root subvolume or no kernel, skipped"
         continue
     fi
+
+    # The profile name becomes a directory name: accept only the characters
+    # FlipperOS allows in profile names.
+    case "$profile" in
+        .* | *[!A-Za-z0-9._-]*)
+            warn "$(basename "$entry"): invalid profile name \"$profile\", skipped"
+            continue
+            ;;
+    esac
     all_profiles="$all_profiles $profile"
+
+    # Without an initrd the virtio modules cannot be loaded before the root
+    # file system is mounted.
+    if [ -z "$initrd" ]; then
+        info "$(basename "$entry"): no initrd, skipped"
+        continue
+    fi
 
     # The kernel configuration sits next to the kernel modules, or in /boot
     # for kernels installed the old way.
@@ -200,7 +246,7 @@ for entry in "$entries_dir"/*.conf; do
 done
 
 # For each profile, keep the usable entry with the newest kernel version.
-selected=$(printf '%s' "$candidates" | sort -k1,1 -k2,2Vr | awk '!seen[$1]++')
+selected=$(printf '%s' "$candidates" | sort --key=1,1 --key=2,2Vr | awk '!seen[$1]++')
 if [ -z "$selected" ]; then
     die "no kernel of build $build_id can boot under QEMU: none has CONFIG_VIRTIO_MMIO and CONFIG_VIRTIO_BLK set to y or m. This build cannot run with these scripts."
 fi
@@ -208,7 +254,7 @@ fi
 # Report the profiles that have no usable kernel at all.
 for profile in $(echo "$all_profiles" | tr ' ' '\n' | sort --unique); do
     if ! echo "$selected" | grep --quiet "^$profile "; then
-        warn "profile $profile has no kernel with virtio support, skipped"
+        warn "profile $profile has no usable kernel (virtio support and an initrd), skipped"
     fi
 done
 
@@ -223,16 +269,9 @@ while read -r profile version entry; do
     out="$dir/boot.tmp/$profile"
     info "$profile: kernel $version"
 
-    # Without an initrd the virtio modules cannot be loaded before the root
-    # file system is mounted.
-    if [ -z "$initrd" ]; then
-        warn "$profile: the boot entry has no initrd, skipped"
-        continue
-    fi
-
     # Copy the kernel and the initrd. Paths in BLS entries are relative to
     # the btrfs top level, for example /@Minimal/usr/lib/modules/<ver>/vmlinuz.
-    mkdir -p "$out" || die "cannot create $out"
+    mkdir --parents "$out" || die "cannot create $out"
     copy_out "$mnt$linux" "$out/vmlinuz" || die "cannot copy $linux"
     copy_out "$mnt$initrd" "$out/initrd" || die "cannot copy $initrd"
 
@@ -251,7 +290,7 @@ while read -r profile version entry; do
     # os-release (the smoke test compares it with the running guest).
     echo "$version" > "$out/kernel-version"
     cp "$entry" "$out/entry.conf"
-    subvol=$(echo "$options" | grep --only-matching 'subvol=[^ ,]*' | head -n 1)
+    subvol=$(echo "$options" | grep --only-matching 'subvol=[^ ,]*' | head --lines=1)
     subvol=${subvol#subvol=}
     copy_out "$mnt/${subvol#/}/etc/os-release" "$out/os-release" || die "cannot copy os-release"
 
@@ -272,8 +311,8 @@ fs_label=$(blkid --probe --offset "$offset" --output value --match-tag LABEL "$i
 # BUILD_ID of /etc/os-release is the number of the root file system build,
 # which differs from the number of the disk image build.
 first=${profiles%% *}
-os_build_id=$(sed -n 's/^BUILD_ID=//p' "$dir/boot.tmp/$first/os-release" | tr -d '"')
-os_build_git=$(sed -n 's/^BUILD_GIT=//p' "$dir/boot.tmp/$first/os-release" | tr -d '"')
+os_build_id=$(sed --quiet 's/^BUILD_ID=//p' "$dir/boot.tmp/$first/os-release" | tr --delete '"')
+os_build_git=$(sed --quiet 's/^BUILD_GIT=//p' "$dir/boot.tmp/$first/os-release" | tr --delete '"')
 
 # Rewrite build-info.txt: keep what 02-download.sh wrote, add the rest.
 {
@@ -292,7 +331,7 @@ mv "$dir/build-info.txt.new" "$dir/build-info.txt"
 
 # Everything is there: give boot/ its final name (cleanup then unmounts).
 # ${dir:?} stops the script if dir were empty: this never deletes /boot.
-rm -rf "${dir:?}/boot"
+rm --recursive --force "${dir:?}/boot"
 mv "$dir/boot.tmp" "$dir/boot" || die "cannot rename $dir/boot.tmp"
 
 info "Profiles: $profiles"
