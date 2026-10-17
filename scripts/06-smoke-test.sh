@@ -256,11 +256,12 @@ esac
 # --- Checks inside the guest ------------------------------------------------
 
 # Run a command in the guest over SSH, with the default password, giving up
-# after 60 seconds. The host key changes with every fresh disk, so it is
-# neither checked nor saved. "-F /dev/null" ignores your SSH configuration
-# (agent forwarding, shared connections...): the guest is a test machine.
+# after 60 seconds (--foreground keeps Ctrl-C working meanwhile). The host
+# key changes with every fresh disk, so it is neither checked nor saved.
+# "-F /dev/null" ignores your SSH configuration (agent forwarding, shared
+# connections...): the guest is a test machine.
 guest() {
-    SSHPASS="$GUEST_PASSWORD" timeout 60 sshpass -e ssh -F /dev/null -p "$TEST_SSH_PORT" \
+    SSHPASS="$GUEST_PASSWORD" timeout --foreground 60 sshpass -e ssh -F /dev/null -p "$TEST_SSH_PORT" \
         -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
         -o PubkeyAuthentication=no -o LogLevel=ERROR -o ConnectTimeout=20 \
         "$GUEST_USER@$host" "$@"
