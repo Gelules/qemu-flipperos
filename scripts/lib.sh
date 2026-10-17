@@ -191,10 +191,11 @@ build_info() {
     sed --quiet "s/^$2=//p" "$1/build-info.txt" 2>/dev/null | tail --lines=1
 }
 
-# Succeed if a running QEMU uses this disk image: QEMU locks the images it
-# opens, and qemu-img then reports that it cannot get the lock.
+# Succeed if a running QEMU uses this disk image. QEMU locks the images it
+# opens: then qemu-img can only read the image with --force-share.
 disk_in_use() {
-    qemu-img info "$1" 2>&1 | grep --quiet --ignore-case 'lock'
+    ! qemu-img info "$1" >/dev/null 2>&1 &&
+        qemu-img info --force-share "$1" >/dev/null 2>&1
 }
 
 # --- Disk image -------------------------------------------------------------
