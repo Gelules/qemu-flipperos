@@ -91,7 +91,9 @@ entry_value() {
 # copy. The path comes from the image, which is downloaded from the Internet:
 # once ".." and symbolic links are resolved, it must still lead to a regular
 # file inside the mounted file system. Otherwise a crafted image could make
-# sudo read a file of this computer. Files only root can read are read
+# sudo read a file of this computer. The resolved path must not be a link
+# itself: $( ... ) drops the newlines that end a name, so a link named after
+# a strange target could hide there. Files only root can read are read
 # through sudo, unless the image was mounted by the user (ROOT_MOUNT).
 copy_out() {
     local real
@@ -105,7 +107,7 @@ copy_out() {
             return 1
             ;;
     esac
-    if [ ! -f "$real" ]; then
+    if [ -L "$real" ] || [ ! -f "$real" ]; then
         echo "[$PROG] ERROR: $1 is not a regular file." >&2
         return 1
     fi
@@ -160,12 +162,13 @@ if [ -n "$ROOT_MOUNT" ]; then
     info "Using the root file system mounted on $mnt (ROOT_MOUNT)"
 else
     # Mount it read-only through a loop device limited to the partition. The
-    # image is not trusted, so device files and programs on it are disabled
-    # (nodev, nosuid, noexec). The loop device is released by umount.
+    # image is not trusted: only the btrfs driver may read it, and device
+    # files and programs on it are disabled (nodev, nosuid, noexec). The loop
+    # device is released by umount.
     mnt="$dir/mnt"
     mkdir --parents "$mnt" || die "cannot create $mnt"
     info "Mounting the root partition on $mnt (needs sudo)"
-    if ! as_root mount --options "ro,nodev,nosuid,noexec,loop,offset=$offset,sizelimit=$length" "$image" "$mnt"; then
+    if ! as_root mount --types btrfs --options "ro,nodev,nosuid,noexec,loop,offset=$offset,sizelimit=$length" "$image" "$mnt"; then
         die "mount failed (is the btrfs driver of the host kernel available? see ./scripts/00-check-host.sh)"
     fi
 fi
@@ -192,6 +195,11 @@ fi
 candidates=""
 all_profiles=""
 for entry in "$entries_dir"/*.conf; do
+    # Only regular files: a FIFO, for example, would block the reading.
+    if [ ! -f "$entry" ]; then
+        warn "$(basename "$entry"): not a regular file, skipped"
+        continue
+    fi
     version=$(entry_value version "$entry")
     options=$(entry_value options "$entry")
     linux=$(entry_value linux "$entry")
@@ -227,10 +235,10 @@ for entry in "$entries_dir"/*.conf; do
     # The kernel configuration sits next to the kernel modules, or in /boot
     # for kernels installed the old way.
     config="$mnt/$subvol/usr/lib/modules/$version/config"
-    if [ ! -e "$config" ]; then
+    if [ ! -f "$config" ]; then
         config="$mnt/boot/config-$version"
     fi
-    if [ ! -r "$config" ]; then
+    if [ ! -f "$config" ] || [ ! -r "$config" ]; then
         warn "$(basename "$entry"): kernel configuration not found or not readable, skipped"
         continue
     fi
@@ -248,7 +256,7 @@ done
 # For each profile, keep the usable entry with the newest kernel version.
 selected=$(printf '%s' "$candidates" | sort --key=1,1 --key=2,2Vr | awk '!seen[$1]++')
 if [ -z "$selected" ]; then
-    die "no kernel of build $build_id can boot under QEMU: none has CONFIG_VIRTIO_MMIO and CONFIG_VIRTIO_BLK set to y or m. This build cannot run with these scripts."
+    die "no kernel of build $build_id can boot under QEMU: none has an initrd and CONFIG_VIRTIO_MMIO and CONFIG_VIRTIO_BLK set to y or m (see the lines above). This build cannot run with these scripts."
 fi
 
 # Report the profiles that have no usable kernel at all.
